@@ -1,0 +1,2 @@
+`ppo2.py`: Modified PPO class for better logging and more flexibility in using custom function approximators. Used for general training. <br>
+`ppo2_aug.py`: Modified PPO2 class for testing the naive augmentation training method for procgen.
