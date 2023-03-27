@@ -20,6 +20,22 @@ def initialize_env(num_envs, env_name, num_levels, start_level, distribution_mod
     return env
 
 
+def initialize_full_env(num_envs, env_name, num_levels, start_level, distribution_mode):
+    env = procgen.ProcgenEnv(
+        num_envs=num_envs,
+        env_name=env_name,
+        num_levels=1,
+        start_level=start_level,
+        distribution_mode=distribution_mode
+    )
+    env = gym.wrappers.RecordEpisodeStatistics(env)
+    env = gym.wrappers.NormalizeReward(env, 0.99)
+    env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
+    env.is_vector_env = True
+    env = VecMonitor(env)
+    return env
+
+
 def init_easy_levels_dict(hard_levels, num_levels, env_name):
     init_state_bytes = {}
     for level in range(num_levels):
@@ -254,7 +270,8 @@ def init_all_level_trajectories(
         
     # hard level trajectories
     for level in tqdm.tqdm(hard_levels):
-        finetune_path = finetuned_weights_path + '_' + str(level) + '_finetune.pth'
+        # this might change depending on how you name the weights so might need to come to this file and change this manually :/
+        finetune_path = finetuned_weights_path + '_' + str(level) + '_finetune.pth' 
         weights = torch.load(finetune_path)
         model.load_state_dict(weights['model'])
         model = model.to(device)

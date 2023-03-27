@@ -1,14 +1,16 @@
+'''most recent file for research training algorithm'''
+# different training loops for research
+
 import sys
 import time
+import copy
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
-import torch as th
+import torch as th # WTF 
+import torch
+import torch.nn.functional as F
 from gym import spaces
-import gym
-import procgen
-import random
-import pandas as pd
 
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.buffers import DictRolloutBuffer, RolloutBuffer
@@ -18,41 +20,21 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from stable_baselines3.common.utils import obs_as_tensor, safe_mean
 from stable_baselines3.common.vec_env import VecEnv
 
-# tbh no idea what this does lol
-SelfNaiveGeneralizationAugmentation = TypeVar("SelfNaiveGeneralizationAugmentation", bound="NaiveGeneralizationAugmentation")
+import random
+import pandas as pd
+import pickle
+
+SelfResearchMethod8 = TypeVar("SelfResearchMethod8", bound="ResearchMethod8")
 
 
-def initialize_env(num_envs, env_name, num_levels, start_level, distribution_mode):
-    env = procgen.ProcgenEnv(
-        num_envs=num_envs,
-        env_name=env_name,
-        num_levels=1,
-        start_level=start_level,
-        distribution_mode=distribution_mode
-    )
-    return env
-
-
-
-class NaiveGeneralizationAugmentation(BaseAlgorithm):
-    """
-    Modified version of OnPolicyAlgorithm from stable baselines 3 for researching different training methods
-    
-    Modified methods:
-        collect_rollouts()
-        
-    Additional methods:
-        self.init_level_dict
-        self.level_average_returns
-        self.level_num_runs
-    """
-
+class ResearchMethod8(BaseAlgorithm):
     def __init__(
         self,
         policy: Union[str, Type[ActorCriticPolicy]],
         custom_policy,
-        env: Union[GymEnv, str],
         csv_path,
+        env: Union[GymEnv, str],
+        p,
         learning_rate: Union[float, Schedule],
         n_steps: int,
         gamma: float,
@@ -98,29 +80,14 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
         # using custom neural networks, not the given ones 
         self.custom_policy = custom_policy # bool
         self.policy = policy
-        
-        # !!! START
-        # level_init_dict, level_average_returns, and level_num_runs
-        self.level_average_returns = {i:0 for i in range(env.venv.env.env.env.env.options['num_levels'])}
-        self.level_num_runs = {i:0 for i in range(env.venv.env.env.env.env.options['num_levels'])}
-        
-        state_ids = []
-        for i in range(env.venv.env.env.env.env.options['num_levels']):
-            # num_envs, env_name, num_levels, start_level, distribution_mode
-            dummy_env = initialize_env(
-                num_envs=1,
-                env_name=env.venv.env.env.env.env.options['env_name'],
-                num_levels=1,
-                start_level=i,
-                distribution_mode='hard' # hardcoding this cuz too annoying to dynamic 
-            )
-            _ = dummy_env.reset()
-            state_ids.append(dummy_env.env.get_state())
-            
-        self.level_init_dict = {i:state for i, state in zip(range(env.venv.env.env.env.env.options['num_levels']), state_ids)}
         self.csv_path = csv_path
-        # !!! END
+        self.p = p
+        self.initial_p = p
         
+        # custom logging (licheng)
+        self.stuck_boundary = {}
+        self.hard_level_play_length = {}
+
         if _init_setup_model:
             self._setup_model()
 
@@ -187,7 +154,6 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
         callback.on_rollout_start()
 
         while n_steps < n_rollout_steps:
-            # pretty sure I can remove this stuff, will never use this .use_sde method ever lol
             if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
                 # Sample a new noise matrix
                 self.policy.reset_noise(env.num_envs)
@@ -204,8 +170,9 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
             if isinstance(self.action_space, spaces.Box):
                 clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
             
-            
+            # custom wandb logging 
             new_obs, rewards, dones, infos = env.step(clipped_actions)
+
             self.num_timesteps += env.num_envs
 
             # Give access to local variables
@@ -222,7 +189,6 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
 
             # Handle timeout by bootstraping with value function
             # see GitHub issue #633
-            
             for idx, done in enumerate(dones):
                 if (
                     done
@@ -235,69 +201,105 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
                     rewards[idx] += self.gamma * terminal_value
 
             rollout_buffer.add(self._last_obs, actions, rewards, self._last_episode_starts, values, log_probs)
-            
-            # i think setting the new obs here is incorrect for our method, since one of these envs may get replaced, the initial state will not be the same as 
-            # the state of the augmented environment
-            # we need to take advantage of the manual reset ignored env.reset() method here to extract the modified environment observations
-            # the way that stable baselines 3 uses dones is as a 'beginning of episode signal' i.e 
-                # self._last_episode_starts = True when a new trajectory starts; don't really understand this format but need to adhere to it when making modifications
             self._last_obs = new_obs
             self._last_episode_starts = dones
             
-            # !!! start
-            # on termination, with a 50% chance replace that environment with the lowest return environment
-            # this implementation is not the exact same as the one i made in comp-ml
-            # differences: 
-                # instead of returning the same lowest level repeatedly (until it 'gets it out of the way'),
-                # instead return a list of all levels that have the same lowest score and randomly sample among these
-                # i.e if 50 different levels have 0 reward, randomly sample from these 50 each time instead of having it play
-                # one of these repeatedly until the reward is no longer 0
-                
-                # added env.reset() for correct resetting of the initial state array
+            
+            
+            # NEEDED OBJECTS:
+            # self.level_average_returns
+            # self.init_research_method
+            # self.init_easy_level_dict
+            # self.init_all_level_trajectories
+            # self.init_all_levels_dict
             for item in infos:
                 if 'episode' in item.keys():
                     level = item['prev_level_seed']
-                    
-                    # if level not in self.level_average_returns:
-                    #     self.level_average_returns[level] = item['episode']['r']
-                    #     self.level_num_runs[level] = 1
-                    # else:
-                    self.level_num_runs[level] += 1
-                    running_average = self.level_average_returns[level] - (self.level_average_returns[level] / self.level_num_runs[level])
-                    running_average = running_average + (item['episode']['r'] / self.level_num_runs[level])
-                    self.level_average_returns[level] = running_average
                         
-            if dones.any():
-                if np.random.random() <= 0.5:
-                    current_state_ids = env.venv.venv.env.env.env.env.get_state()
-                    for idx, d in enumerate(dones):
-                        if d:
-                            invert = {}
-                            for k, v in self.level_average_returns.items():
-                                if v in invert:
-                                    invert[v].append(k)
-                                else:
-                                    invert[v] = [k]
-                            lowest_return_level = sorted(invert.items(), key=lambda x: x[0])[0][1]
-                            lowest_return_level = random.sample(lowest_return_level, 1)[0]
-                            current_state_ids[idx] = self.level_init_dict[lowest_return_level][0]
-                            env.venv.venv.env.env.env.env.set_state(current_state_ids)
-                            
-                            correct_reset_states = env.reset()
-                            self._last_obs = correct_reset_states
-                            
-                            # dummy_states = env.reset()
-                            # self._last_obs = dummy_states
-                            # i think with no break, it sets every single finished state to the bad state where basically every single level is the bad state
-                            break
-                            
-                    # only resets the env we care about, leaves the other ones alone
-                    # don't need to change the dones or rewards signal since all we're doing is replacing an environment
-                    # self._last_obs = env.reset() 
+                    updated_average_return = self.level_average_returns[level] * 0.9 + item['episode']['r'] * 0.1
+                    self.level_average_returns[level] = updated_average_return
                     
-            # import pdb; pdb.set_trace()
-            # !!! end
-            
+                    print(f'Finished playing level: {level}, Average Return: {updated_average_return}')
+                    
+                    if level in self.init_research_method:
+                        # extra things to log: 
+                        # 1. which boundaries do the agents get stuck on?
+                        # 2. how long does the agent play a level from the boundary it starts at?
+                        self.stuck_boundary[level] = len(self.init_research_method[level]['trajectory boundaries']) # 1.
+                        current_boundary = self.stuck_boundary[level]
+                        if level in self.hard_level_play_length:
+                            self.hard_level_play_length[level][current_boundary].append(item['episode']['l']) # episode length
+                        else:
+                            self.hard_level_play_length[level] = {k : [] for k in range(1, 6)}
+                            self.hard_level_play_length[level][current_boundary].append(item['episode']['l'])
+                            
+                        
+                        if len(self.init_research_method[level]['trajectory boundaries']) > 1:
+                            if updated_average_return >= 9.0:
+                                self.init_research_method[level]['trajectory boundaries'].pop()
+                                self.level_average_returns[level] = 0.0
+                        else:
+                            if updated_average_return >= 9.0: # enforcing a higher threshold to move the hard level to an easy level
+                                self.init_easy_level_dict[level] = self.init_all_level_dict[level] 
+                                self.init_research_method.pop(level)
+                                self.p -= self.initial_p / self.num_initial_hard_levels
+                    
+                    elif level in self.init_easy_level_dict:
+                        if updated_average_return <= 7.0:
+                            # if no trajectories for a level in the easy level dict 
+                            # (it means that it was too hard to even had trajectories for, so don't move anything, just play it as usual)
+                            if level not in self.unplayable_levels:
+                                self.init_easy_level_dict.pop(level)
+                                self.init_research_method[level] = self.init_all_level_trajectories[level]
+                                self.p += self.initial_p / self.num_initial_hard_levels
+                        
+
+            # set environments
+            for idx, done in enumerate(dones):
+                if done:
+                    if np.random.random() <= self.p: 
+                        hard_level = random.sample(self.init_research_method.keys(), 1)[0]
+                        sampling_list = list(self.init_research_method[hard_level].keys())
+                        hard_level_trajectory = random.sample(sampling_list[:len(sampling_list)-1], 1)[0]
+                        
+                        # [0], [0, b1], [b1, b2], [b2, b3], [b3]
+                        if len(self.init_research_method[hard_level]['trajectory boundaries'][-1]) == 1:
+                            if self.init_research_method[hard_level]['trajectory boundaries'][-1][0] == 0:
+                                starting_boundary = 0
+                            else:
+                                try:
+                                    starting_boundary = np.random.randint(
+                                        low=self.init_research_method[hard_level]['trajectory boundaries'][-1][0],
+                                        high=len(self.init_research_method[hard_level][hard_level_trajectory]['trajectory bytes'])
+                                    )
+                                except:
+                                    starting_boundary = 0
+                        elif len(self.init_research_method[hard_level]['trajectory boundaries'][-1]) == 2:
+                            try:
+                                starting_boundary = np.random.randint(
+                                    low=self.init_research_method[hard_level]['trajectory boundaries'][-1][0],
+                                    high=self.init_research_method[hard_level]['trajectory boundaries'][-1][1]
+                                )
+                            except:
+                                starting_boundary = 0
+                        else:
+                            raise ValueError('dict formatting is wrong')
+                        
+                        state_bytes = self.init_research_method[hard_level][hard_level_trajectory]['trajectory bytes'][starting_boundary]
+                        current_state_bytes = env.venv.venv.env.env.env.env.get_state()
+                        current_state_bytes[idx] = state_bytes[0] # need to access the list
+                        env.venv.venv.env.env.env.env.set_state(current_state_bytes)
+                        modified_starting_states = env.reset() # gonna throw warning message but its ok
+                        self._last_obs = modified_starting_states.copy() # overwrite for sb3 compatability
+                        
+                    else: # for some reason it stops going back to play regular states so im just gonna manually enforce it now.
+                        random_easy_level = random.sample(list(self.init_easy_level_dict.keys()), 1)[0] 
+                        current_state_bytes = env.venv.venv.env.env.env.env.get_state()
+                        current_state_bytes[idx] = self.init_easy_level_dict[random_easy_level][0]
+                        env.venv.venv.env.env.env.env.set_state(current_state_bytes)
+                        modified_starting_states = env.reset() 
+                        self._last_obs = modified_starting_states.copy() 
+
         with th.no_grad():
             # Compute value for the last timestep
             values = self.policy.predict_values(obs_as_tensor(new_obs, self.device))
@@ -307,6 +309,41 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
         callback.on_rollout_end()
 
         return True
+    
+    
+    def collect_rollouts_test(self):
+        """
+        Evlauate 20 random full trajectories from the testing distribution
+        Need to initialize self.test_env (can do in the training script)
+        Need to initialize self.num_test_trajectories
+        """
+        if not self.custom_policy:
+            self.policy.set_training_mode(False)
+        else:
+            self.policy.eval()
+            
+            
+        ep_lengths, ep_rewards = [], []
+        
+        with torch.no_grad():
+            while len(ep_rewards) < self.num_test_trajectories:
+                state = self.test_env.reset()
+                done = False
+                while not done:
+                    state = {'rgb': torch.tensor(state['rgb'], device=self.device).permute(0, 3, 1, 2)}
+                    actions, _, _ = self.policy(state)
+                    actions = actions.cpu().numpy()
+                    next_state, reward, done, info = self.test_env.step(actions)
+                    state = next_state
+                    
+                    for item in info:
+                        if 'episode' in item.keys():
+                            ep_lengths.append(item['episode']['l'])
+                            ep_rewards.append(item['episode']['r'])
+                            
+        assert len(ep_rewards) == len(ep_lengths)
+        return ep_rewards, ep_lengths
+    
 
     def train(self) -> None:
         """
@@ -316,14 +353,14 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
         raise NotImplementedError
 
     def learn(
-        self: SelfNaiveGeneralizationAugmentation,
+        self: SelfResearchMethod8,
         total_timesteps: int,
         callback: MaybeCallback = None,
         log_interval: int = 1,
         tb_log_name: str = "OnPolicyAlgorithm",
         reset_num_timesteps: bool = True,
         progress_bar: bool = False,
-    ) -> SelfNaiveGeneralizationAugmentation:
+    ) -> SelfResearchMethod8:
         iteration = 0
 
         total_timesteps, callback = self._setup_learn(
@@ -335,9 +372,18 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
         )
 
         callback.on_training_start(locals(), globals())
-
+        
+        iters = 0
+        
         while self.num_timesteps < total_timesteps:
             continue_training = self.collect_rollouts(self.env, callback, self.rollout_buffer, n_rollout_steps=self.n_steps)
+            
+            # TESTING ENVIRONMENT LOGGING
+            if iters % self.test_logging_checkpoint == 0: # default 30
+                ep_rewards, ep_lengths = self.collect_rollouts_test()
+                
+                self.logger.record('rollout/test_ep_rew_mean', safe_mean(ep_rewards))
+                self.logger.record('rollout/test_ep_len_mean', safe_mean(ep_lengths))
 
             if continue_training is False:
                 break
@@ -346,6 +392,7 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
             self._update_current_progress_remaining(self.num_timesteps, total_timesteps)
 
             # Display training infos
+            # TRAINING ENVIRONMENT LOGGING
             if log_interval is not None and iteration % log_interval == 0:
                 time_elapsed = max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
                 fps = int((self.num_timesteps - self._num_timesteps_at_start) / time_elapsed)
@@ -358,14 +405,17 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
                 self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
                 self.logger.dump(step=self.num_timesteps)
                 
-                # !!! START
-                # additional csv logging cuz its cool
+                # ADDITIONAL CUSTOM LOGGING
                 pd.DataFrame(self.level_average_returns, index=[0]).to_csv(self.csv_path + '_level_average_returns.csv')
-                pd.DataFrame(self.level_num_runs, index=[0]).to_csv(self.csv_path + '_level_num_runs.csv')
-                print('working')
-                # !!! END
-
+                pd.DataFrame({i : j for i, j in self.level_average_returns.items() if i in self.init_research_method.keys()}, index=[0]).to_csv(self.csv_path + '_hard_level_returns.csv')
+                pd.DataFrame(self.stuck_boundary, index=[0]).to_csv(self.csv_path + '_stuck_boundary.csv')
+                with open(self.csv_path + '_hard_level_play_lengths.pkl', 'wb') as f:
+                    pickle.dump(self.hard_level_play_length, f)
+                
+                
             self.train()
+            
+            iters += 1
 
         callback.on_training_end()
 
@@ -374,4 +424,4 @@ class NaiveGeneralizationAugmentation(BaseAlgorithm):
     def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
         state_dicts = ["policy", "policy.optimizer"]
 
-        return state_dicts, []
+        return state_dicts, [] 

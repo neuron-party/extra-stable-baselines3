@@ -9,18 +9,18 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 # from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm
-from stable_baselines3.common.research_method_3 import ResearchMethod3
+from stable_baselines3.common.research_method_8 import ResearchMethod8
 from stable_baselines3.common.policies import ActorCriticCnnPolicy, ActorCriticPolicy, BasePolicy, MultiInputActorCriticPolicy
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import explained_variance, get_schedule_fn
 
-SelfPPO_ResearchMethod3 = TypeVar("SelfPPO_ResearchMethod3", bound="PPO_ResearchMethod3")
+SelfPPO_ResearchMethod8 = TypeVar("SelfPPO_ResearchMethod8", bound="PPO_ResearchMethod8")
 
 
-class PPO_ResearchMethod3(ResearchMethod3):
+class PPO_ResearchMethod8(ResearchMethod8):
     """
-    Inherits from ResearchMethod3
     """
+
     policy_aliases: Dict[str, Type[BasePolicy]] = {
         "MlpPolicy": ActorCriticPolicy,
         "CnnPolicy": ActorCriticCnnPolicy,
@@ -266,16 +266,17 @@ class PPO_ResearchMethod3(ResearchMethod3):
             'model': self.policy.state_dict(),
             'optimizer': self.policy.optimizer.state_dict()
         }, self.checkpoint_path + '.pth')
+        
 
     def learn(
-        self: SelfPPO_ResearchMethod3,
+        self: SelfPPO_ResearchMethod8,
         total_timesteps: int,
         callback: MaybeCallback = None,
         log_interval: int = 1,
         tb_log_name: str = "PPO",
         reset_num_timesteps: bool = True,
         progress_bar: bool = False,
-    ) -> SelfPPO_ResearchMethod3:
+    ) -> SelfPPO_ResearchMethod8:
         return super().learn(
             total_timesteps=total_timesteps,
             callback=callback,
