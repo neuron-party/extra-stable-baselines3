@@ -1,4 +1,4 @@
-'''UTD file for research method 8'''
+'''UTD file for research method 9'''
 
 import sys
 import time
@@ -23,10 +23,10 @@ import random
 import pandas as pd
 import pickle
 
-SelfResearchMethod8 = TypeVar("SelfResearchMethod8", bound="ResearchMethod8")
+SelfResearchMethod9 = TypeVar("SelfResearchMethod9", bound="ResearchMethod9")
 
 
-class ResearchMethod8(BaseAlgorithm):
+class ResearchMethod9(BaseAlgorithm):
     """
     all changes made so far:
         1. boundary sampling (selecting starting states between 2 boundaries [b1, b2])
@@ -34,6 +34,7 @@ class ResearchMethod8(BaseAlgorithm):
         3. moving easy levels to hard levels if it falls under some threhsold
         4. dynamic p (decreasing/increasing depending on moving hard levels in and out)
         5. extra logging (test reward/ep_len during training)
+        6. max-steps restrictions on hard levels
     
     tried but removed:
         overlapping boundaries
@@ -46,6 +47,7 @@ class ResearchMethod8(BaseAlgorithm):
         5. self.level_average_returns
         6. self.unplayable_levels
         7. self.num_initial_hard_levels
+        8. self.env_max_steps
         
         1. self.test_env
         2. self.test_logging_checkpoint
@@ -110,6 +112,11 @@ class ResearchMethod8(BaseAlgorithm):
         # custom logging (licheng)
         self.stuck_boundary = {}
         self.hard_level_play_length = {}
+        
+        # array to store env steps taken and to enforce max steps
+        self.env_steps_taken = np.array([[0 for i in range(self.n_envs)], [None for i in range(self.n_envs)]])
+        self.env_steps_taken = self.env_steps_taken.T
+        
 
         if _init_setup_model:
             self._setup_model()
@@ -244,11 +251,9 @@ class ResearchMethod8(BaseAlgorithm):
                         current_boundary = self.stuck_boundary[level]
                         if level in self.hard_level_play_length:
                             self.hard_level_play_length[level][current_boundary].append(item['episode']['l']) # episode length
-                            # print(f'LEVEL : {level}, CURRENT BOUNDARY: {current_bounary}')
                         else:
                             self.hard_level_play_length[level] = {k : [] for k in range(1, 6)}
                             self.hard_level_play_length[level][current_boundary].append(item['episode']['l'])
-                            # print(f'LEVEL : {level}, CURRENT BOUNDARY: {current_bounary}')
                         
                         if len(self.init_research_method[level]['trajectory boundaries']) > 1:
                             if updated_average_return >= 9.0:
@@ -274,48 +279,40 @@ class ResearchMethod8(BaseAlgorithm):
             for idx, done in enumerate(dones):
                 if done:
                     if np.random.random() <= self.p: 
-                        hard_level = random.sample(self.init_research_method.keys(), 1)[0]
-                        sampling_list = list(self.init_research_method[hard_level].keys())
-                        hard_level_trajectory = random.sample(sampling_list[:len(sampling_list)-1], 1)[0]
+                        env, hard_level = self.sample_hard_level_trajectory(idx, env)
                         
-                        # [0], [0, b1], [b1, b2], [b2, b3], [b3]
-                        if len(self.init_research_method[hard_level]['trajectory boundaries'][-1]) == 1:
-                            if self.init_research_method[hard_level]['trajectory boundaries'][-1][0] == 0:
-                                starting_boundary = 0
-                            else:
-                                try:
-                                    starting_boundary = np.random.randint(
-                                        low=self.init_research_method[hard_level]['trajectory boundaries'][-1][0],
-                                        high=len(self.init_research_method[hard_level][hard_level_trajectory]['trajectory bytes'])
-                                    )
-                                except:
-                                    starting_boundary = 0
-                        elif len(self.init_research_method[hard_level]['trajectory boundaries'][-1]) == 2:
-                            try:
-                                starting_boundary = np.random.randint(
-                                    low=self.init_research_method[hard_level]['trajectory boundaries'][-1][0],
-                                    high=self.init_research_method[hard_level]['trajectory boundaries'][-1][1]
-                                )
-                            except:
-                                starting_boundary = 0
-                        else:
-                            raise ValueError('dict formatting is wrong')
-                        
-                        state_bytes = self.init_research_method[hard_level][hard_level_trajectory]['trajectory bytes'][starting_boundary]
-                        current_state_bytes = env.venv.venv.env.env.env.env.get_state()
-                        current_state_bytes[idx] = state_bytes[0] # need to access the list
-                        env.venv.venv.env.env.env.env.set_state(current_state_bytes)
-                        modified_starting_states = env.reset() # gonna throw warning message but its ok
-                        self._last_obs = modified_starting_states.copy() # overwrite for sb3 compatability
+                        # set level and steps taken in self.env_steps_taken
+                        self.env_steps_taken[idx][0] = hard_level
+                        self.env_steps_taken[idx][1] = 0
                         
                     else: # for some reason it stops going back to play regular states so im just gonna manually enforce it now.
-                        random_easy_level = random.sample(list(self.init_easy_level_dict.keys()), 1)[0] 
-                        current_state_bytes = env.venv.venv.env.env.env.env.get_state()
-                        current_state_bytes[idx] = self.init_easy_level_dict[random_easy_level][0]
-                        env.venv.venv.env.env.env.env.set_state(current_state_bytes)
-                        modified_starting_states = env.reset() 
-                        self._last_obs = modified_starting_states.copy() 
-
+                        env, random_easy_level = self.sample_easy_level_trajectory(idx, env) 
+                        
+                        # set level and steps taken in self.env_steps_taken
+                        self.env_steps_taken[idx][0] = random_easy_level
+                        self.env_steps_taken[idx][1] = None # we don't care about tracking easy level steps
+            
+            
+            # LIMITING STEPS 
+            # variables we need to make sure to modify to reflect latest changes: 
+                # self._last_obs 
+                # self._last_episode_starts
+            # !!! I THINK I HAVE TO TWEAK THE SCORE HERE TOO RIGHT??
+            for idx, (level, steps) in enumerate(self.env_steps_taken):
+                if steps is not None:
+                    if steps > self.env_max_steps[level]:
+                        env, hard_level = self.sample_hard_level_trajectory(idx, env)
+                        
+                        self._last_episode_starts[idx] = True
+                        self.env_steps_taken[idx][0] = hard_level
+                        self.env_steps_taken[idx][1] = 0
+                        
+                        print(f'LEVEL {level} HAS EXCEEDED MAX STEPS. RESETTING NOW')
+                    else:
+                        self.env_steps_taken[idx][1] += 1
+            
+            
+            
         with th.no_grad():
             # Compute value for the last timestep
             values = self.policy.predict_values(obs_as_tensor(new_obs, self.device))
@@ -325,6 +322,54 @@ class ResearchMethod8(BaseAlgorithm):
         callback.on_rollout_end()
 
         return True
+    
+    
+    def sample_hard_level_trajectory(self, idx, env):
+        hard_level = random.sample(self.init_research_method.keys(), 1)[0]
+        sampling_list = list(self.init_research_method[hard_level].keys())
+        hard_level_trajectory = random.sample(sampling_list[:len(sampling_list)-1], 1)[0]
+
+        # [0], [0, b1], [b1, b2], [b2, b3], [b3]
+        if len(self.init_research_method[hard_level]['trajectory boundaries'][-1]) == 1:
+            if self.init_research_method[hard_level]['trajectory boundaries'][-1][0] == 0:
+                starting_boundary = 0
+            else:
+                try:
+                    starting_boundary = np.random.randint(
+                        low=self.init_research_method[hard_level]['trajectory boundaries'][-1][0],
+                        high=len(self.init_research_method[hard_level][hard_level_trajectory]['trajectory bytes'])
+                    )
+                except:
+                    starting_boundary = 0
+        elif len(self.init_research_method[hard_level]['trajectory boundaries'][-1]) == 2:
+            try:
+                starting_boundary = np.random.randint(
+                    low=self.init_research_method[hard_level]['trajectory boundaries'][-1][0],
+                    high=self.init_research_method[hard_level]['trajectory boundaries'][-1][1]
+                )
+            except:
+                starting_boundary = 0
+        else:
+            raise ValueError('dict formatting is wrong')
+
+        state_bytes = self.init_research_method[hard_level][hard_level_trajectory]['trajectory bytes'][starting_boundary]
+        current_state_bytes = env.venv.venv.env.env.env.env.get_state()
+        current_state_bytes[idx] = state_bytes[0] # need to access the list
+        env.venv.venv.env.env.env.env.set_state(current_state_bytes)
+        modified_starting_states = env.reset() # gonna throw warning message but its ok
+        self._last_obs = modified_starting_states.copy() # overwrite for sb3 compatability
+        return env, hard_level
+        
+        
+    def sample_easy_level_trajectory(self, idx, env):
+        random_easy_level = random.sample(list(self.init_easy_level_dict.keys()), 1)[0] 
+        current_state_bytes = env.venv.venv.env.env.env.env.get_state()
+        current_state_bytes[idx] = self.init_easy_level_dict[random_easy_level][0]
+        env.venv.venv.env.env.env.env.set_state(current_state_bytes)
+        modified_starting_states = env.reset() 
+        self._last_obs = modified_starting_states.copy()
+        return env, random_easy_level
+
     
     
     def collect_rollouts_test(self):
@@ -369,14 +414,14 @@ class ResearchMethod8(BaseAlgorithm):
         raise NotImplementedError
 
     def learn(
-        self: SelfResearchMethod8,
+        self: SelfResearchMethod9,
         total_timesteps: int,
         callback: MaybeCallback = None,
         log_interval: int = 1,
         tb_log_name: str = "OnPolicyAlgorithm",
         reset_num_timesteps: bool = True,
         progress_bar: bool = False,
-    ) -> SelfResearchMethod8:
+    ) -> SelfResearchMethod9:
         iteration = 0
 
         total_timesteps, callback = self._setup_learn(
