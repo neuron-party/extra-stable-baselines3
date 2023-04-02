@@ -7,6 +7,7 @@ import pickle
 import gym
 import procgen
 import tqdm
+from stable_baselines3.common.vec_env import VecExtractDictObs, VecMonitor
 
 
 def initialize_env(num_envs, env_name, num_levels, start_level, distribution_mode):
