@@ -270,8 +270,7 @@ def init_all_level_trajectories(
         
     # hard level trajectories
     for level in tqdm.tqdm(hard_levels):
-        # this might change depending on how you name the weights so might need to come to this file and change this manually :/
-        finetune_path = finetuned_weights_path + '_' + str(level) + '_finetune.pth' 
+        finetune_path = finetuned_weights_path + '_' + str(level) + '_finetune.pth'
         weights = torch.load(finetune_path)
         model.load_state_dict(weights['model'])
         model = model.to(device)

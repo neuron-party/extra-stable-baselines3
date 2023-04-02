@@ -58,10 +58,9 @@ def parse_args():
     parser.add_argument('--hard-levels-path', type=str, default=None)
     parser.add_argument('--load-existing-alt', type=str, default=None) # alt: all-level-trajectories
     parser.add_argument('--load-unplayable-levels', type=str, default=None)
-    parser.add_argument('--p', type=float, default=0.5)
-    
-    parser.add_argument('--finetuned-weights-path', type=str, default=None)
     parser.add_argument('--pretrained-weights-path', type=str, default=None)
+    
+    parser.add_argument('--p', type=float, default=0.5)
     
     args = parser.parse_args()
     return args
@@ -104,16 +103,11 @@ def main(args):
     
     with open(args.hard_levels_path + '.pkl', 'rb') as f:
         hard_levels = pickle.load(f)
+    with open(args.load_existing_alt + '.pkl', 'rb') as f:
+        all_level_trajectories = pickle.load(f)
+    with open(args.load_unplayable_levels + '.pkl', 'rb') as f:
+        unplayable_levels = pickle.load(f)
     
-    if args.load_existing_alt:
-        with open(args.load_existing_alt + '.pkl', 'rb') as f:
-            all_level_trajectories = pickle.load(f)
-    else:
-        all_level_trajectories = init_all_level_trajectories() # implement later, just always load for now to save time
-        
-    if args.load_unplayable_levels:
-        with open(args.load_unplayable_levels + '.pkl', 'rb') as f:
-            unplayable_levels = pickle.load(f)
         
     # there should be no overlap in hard_levels and unplayable_levels
     intersection = [value for value in hard_levels if value in unplayable_levels]
