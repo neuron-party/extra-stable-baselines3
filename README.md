@@ -36,10 +36,14 @@ parser.add_argument('--max-global-steps', type=int, default=200000000) # number 
 parser.add_argument('--log', type=bool, default=False) # for tensorboard 
 parser.add_argument('--logging-path', type=str, default=None) # logging folder path for tensorboard
 parser.add_argument('--save-path', type=str, default='agent.pth') # save path for saving final weights
+
+# NEW saving args
+parser.add_argument('--checkpoints-remaining', type=list, nargs='+', default=None) # timesteps to save a checkpoint at
+parser.add_argument('--checkpoint-path', type=str, default=None)                   # path to save checkpoints to
 ```
 **example**
 ```
-nohup python train_procgen.py --device=0 --env-name='jumper' --log=True --logging-path=regular_ppo_jumper --save-path=weights/regular_ppo_jumper_1
+nohup python train_procgen.py --device=0 --env-name='jumper' --log=True --logging-path=regular_ppo_jumper --save-path=weights/regular_ppo_jumper_1 --checkpoint-path=weights/regular_ppo_jumper_1_checkpoint --checkpoints-remaining 75000000 50000000 25000000 (saving at intervals 25M, 50M, 75M)
 ```
 
 ## Finetuning 
@@ -98,8 +102,14 @@ parser.add_argument('--revised-hard-levels-save-path', type=str, default=None) #
 nohup python init_research_methods.py --pretrained-weights-path=weights/jumper_pretrain_500 --finetuned-weights-path=weights/jumper_finetune/ppo_jumper --env-name=jumper --irm-save-path=helpers/jumper_pretrain_500_all_level_trajectories --unplayable-levels-save-path=helpers/jumper_pretrain_500_unplayable_levels --revised-hard-levels-path=helpers/jumper_pretrain_500_revised_hard_levels
 ```
 ## Training with algorithm
-**train_procgen_algorithm8.py**
+**train_procgen_algorithm_10.py**
+* boundary sampling, dynamic p, adding/removing easy/hard levels, early stopping, stable/unstable, masking
 ```
+# early stopping args
+parser.add_argument('--num-extra-steps', type=int, default=1000000) # set to 0 for immediate stopping, set to 100000000 for regular training
+parser.add_argument('--masked', type=int, default=0)
+parser.add_argument('--early-stopping-path', type=str, default=None)
+
 # saving/logging args
 parser.add_argument('--log', type=bool, default=False) 
 parser.add_argument('--logging-path', type=str, default=None)
@@ -117,7 +127,11 @@ parser.add_argument('--p', type=float, default=0.5)                       # prob
 ```
 **example**
 ```
-nohup python train_procgen_algorithm8.py --save-path=weights/jumper_rm8 --csv-path=csvs/jumper_rm8 --checkpoint-path=weights/jumper_rm8_checkpoints --hard-level-path=helpers/jumper_pretrain_500_revised_hard_levels --load-existing-alt=helpers/jumper_pretrain_500_all_level_trajectories --load-unplayable-levels=helpers/jumper_pretrain_unplayable_levels --pretrained-weights-path=weights/jumper_pretrain_500 --p=0.5 
+nohup python train_procgen_algorithm_10.py --save-path=weights/jumper_rm8 --csv-path=csvs/jumper_rm8 --checkpoint-path=weights/jumper_rm8_checkpoints --hard-level-path=helpers/jumper_pretrain_500_revised_hard_levels --load-existing-alt=helpers/jumper_pretrain_500_all_level_trajectories --load-unplayable-levels=helpers/jumper_pretrain_unplayable_levels --pretrained-weights-path=weights/jumper_pretrain_500 --p=0.5 --masked=False --num-extra-steps=1000000 --early-stopping-path=weights/jumper_rm8_earlystop
+```
+**train_procgen_algorithm8.py**
+```
+# same args as algorithm_10 but no early stopping
 ```
 **train_procgen_algorithm9.py**
 ```
@@ -125,6 +139,7 @@ nohup python train_procgen_algorithm8.py --save-path=weights/jumper_rm8 --csv-pa
 # multiplier for determining max length an agent can play for some level depending on length of demonstration trajectory
 parser.add_argument('--max-steps-multiplier', type=int, default=2) 
 ```
+
 
 
 
