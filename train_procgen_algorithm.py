@@ -12,8 +12,10 @@ import torch.nn.functional as F
 from stable_baselines3.ppo.ppo_research_8 import PPO_ResearchMethod8
 from stable_baselines3.common.vec_env import VecExtractDictObs, VecMonitor
 
-from networks import *
-from method_utils import *
+# from networks import *
+# from method_utils import *
+from models.impala import *
+from utils.method_utils import *
 import random
 import tqdm
 

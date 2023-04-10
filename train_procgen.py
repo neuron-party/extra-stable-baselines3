@@ -9,7 +9,8 @@ import torch
 from stable_baselines3.common.vec_env import VecExtractDictObs, VecMonitor
 from stable_baselines3.ppo.ppo import PPO
 
-from networks import *
+from models.impala import *
+from utils.method_utils import *
 
 
 def parse_args():
@@ -44,18 +45,31 @@ def parse_args():
     parser.add_argument('--log', type=bool, default=False)
     parser.add_argument('--logging-path', type=str, default=None)
     parser.add_argument('--save-path', type=str, default='agent.pth')
+    parser.add_argument('--checkpoints-remaining', type=list, nargs='+', default=None) # train for 310M steps 
+    parser.add_argument('--checkpoint-path', type=str, default=None)
+    
+    # seed
+    parser.add_argument('--torch-seed', type=int, default=None)
+    parser.add_argument('--gym-seed', type=int, default=None)
     
     args = parser.parse_args()
     return args
 
 
 def main(args):
+    torch.manual_seed(args.torch_seed)
+    # checkpoints_remaining = [int(i) for i in args.checkpoints_remaining]
+    checkpoints_remaining = [int(''.join(i)) for i in args.checkpoints_remaining]
+        
+    print(f'Saving checkpoints: {checkpoints_remaining}')
+    
     env = procgen.ProcgenEnv(
         num_envs=args.num_envs, 
         env_name=args.env_name, 
         num_levels=args.num_levels, 
         start_level=args.start_level,
-        distribution_mode=args.distribution_mode
+        distribution_mode=args.distribution_mode,
+        rand_seed=args.gym_seed
     )
     env = gym.wrappers.RecordEpisodeStatistics(env)
     env = gym.wrappers.NormalizeReward(env, gamma=args.gamma)
@@ -72,6 +86,8 @@ def main(args):
         policy=model,
         custom_policy=True,
         env=env,
+        checkpoints_remaining=checkpoints_remaining,
+        checkpoint_path=args.checkpoint_path,
         n_steps=args.n_steps,
         batch_size=args.batch_size,
         n_epochs=args.n_epochs,

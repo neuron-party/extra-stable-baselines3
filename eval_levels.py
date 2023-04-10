@@ -12,7 +12,8 @@ import argparse
 from stable_baselines3.ppo.ppo import PPO
 from stable_baselines3.common.vec_env import VecExtractDictObs, VecMonitor
 
-from networks import *
+# from networks import *
+from models.impala import *
 
 
 

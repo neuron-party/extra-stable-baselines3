@@ -8,6 +8,8 @@ import gym
 import procgen
 import tqdm
 from stable_baselines3.common.vec_env import VecExtractDictObs, VecMonitor
+import gym
+import procgen
 
 
 def initialize_env(num_envs, env_name, num_levels, start_level, distribution_mode):
@@ -56,6 +58,21 @@ def init_easy_levels_dict(hard_levels, num_levels, env_name):
 def init_all_levels_dict(num_levels, env_name):
     init_state_bytes = {}
     for level in range(num_levels):
+        env = initialize_env(
+            num_envs=1,
+            env_name=env_name,
+            num_levels=1,
+            start_level=level,
+            distribution_mode='hard'
+        )
+        _ = env.reset()
+        b = env.env.get_state()
+        init_state_bytes[level] = b
+    return init_state_bytes
+
+def init_specific_levels_dict(specific_levels, env_name):
+    init_state_bytes = {}
+    for level in specific_levels:
         env = initialize_env(
             num_envs=1,
             env_name=env_name,

@@ -76,6 +76,8 @@ class PPO(OnPolicyAlgorithm):
         self,
         policy: Union[str, Type[ActorCriticPolicy]],
         custom_policy,
+        checkpoint_path,
+        checkpoints_remaining,
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
         n_steps: int = 2048,
@@ -102,6 +104,8 @@ class PPO(OnPolicyAlgorithm):
         super().__init__(
             policy,
             custom_policy,
+            checkpoint_path,
+            checkpoints_remaining,
             env,
             learning_rate=learning_rate,
             n_steps=n_steps,

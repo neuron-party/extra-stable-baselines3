@@ -2,6 +2,8 @@ import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
+import torch
+
 import numpy as np
 import torch as th
 from gym import spaces
@@ -54,6 +56,8 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self,
         policy: Union[str, Type[ActorCriticPolicy]],
         custom_policy,
+        checkpoint_path,
+        checkpoints_remaining,
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule],
         n_steps: int,
@@ -100,6 +104,10 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         # using custom neural networks, not the given ones 
         self.custom_policy = custom_policy # bool
         self.policy = policy
+        
+        # custom saving
+        self.checkpoints_remaining = checkpoints_remaining
+        self.checkpoint_path = checkpoint_path
 
         if _init_setup_model:
             self._setup_model()
@@ -278,8 +286,19 @@ class OnPolicyAlgorithm(BaseAlgorithm):
                 self.logger.dump(step=self.num_timesteps)
 
             self.train()
+            
+            # manual checkpoints!
+            if self.checkpoints_remaining:
+                if self.num_timesteps >= self.checkpoints_remaining[-1]:
+                    torch.save({
+                        'model': self.policy.state_dict(),
+                        'optimizer': self.policy.optimizer.state_dict()
+                    }, self.checkpoint_path + '_' + str(self.checkpoints_remaining[-1]) + '.pth')
+                    self.checkpoints_remaining.pop()
 
         callback.on_training_end()
+        
+
 
         return self
 
