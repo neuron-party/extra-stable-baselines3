@@ -287,14 +287,15 @@ class OnPolicyAlgorithm(BaseAlgorithm):
 
             self.train()
             
-            # manual checkpoints!
-            if self.checkpoints_remaining:
-                if self.num_timesteps >= self.checkpoints_remaining[-1]:
-                    torch.save({
-                        'model': self.policy.state_dict(),
-                        'optimizer': self.policy.optimizer.state_dict()
-                    }, self.checkpoint_path + '_' + str(self.checkpoints_remaining[-1]) + '.pth')
-                    self.checkpoints_remaining.pop()
+            if self.checkpoint_path:
+                # manual checkpoints!
+                if self.checkpoints_remaining:
+                    if self.num_timesteps >= self.checkpoints_remaining[-1]:
+                        torch.save({
+                            'model': self.policy.state_dict(),
+                            'optimizer': self.policy.optimizer.state_dict()
+                        }, self.checkpoint_path + '_' + str(self.checkpoints_remaining[-1]) + '.pth')
+                        self.checkpoints_remaining.pop()
 
         callback.on_training_end()
         

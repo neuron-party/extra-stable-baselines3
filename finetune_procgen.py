@@ -51,6 +51,10 @@ def parse_args():
     parser.add_argument('--pretrained-weights-path', type=str, default='weights/')
     parser.add_argument('--hard-levels-path', type=str, default=None)
     
+    # just leave these as none
+    parser.add_argument('--checkpoints-remaining', type=list, nargs='+', default=None) 
+    parser.add_argument('--checkpoint-path', type=str, default=None)
+    
     args = parser.parse_args()
     return args
 
@@ -93,6 +97,8 @@ def main(args):
             policy=model,
             custom_policy=True,
             env=env,
+            checkpoint_path=args.checkpoint_path,
+            checkpoints_remaining=checkpoints_remaining,
             n_steps=args.n_steps,
             batch_size=args.batch_size,
             n_epochs=args.n_epochs,
