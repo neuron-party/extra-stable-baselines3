@@ -69,18 +69,24 @@ def parse_args():
     parser.add_argument('--num-extra-steps', type=int, default=1000000) # set to 0 for immediate stopping, set to 100000000 for regular training
     parser.add_argument('--masked', type=int, default=0)
     
+    parser.add_argument('--torch-seed', type=int, default=0)
+    parser.add_argument('--gym-seed', type=int, default=0)
+    
     args = parser.parse_args()
     return args
 
 
 
 def main(args):
+    torch.manual_seed(args.torch_seed)
+    
     env = procgen.ProcgenEnv(
         num_envs=args.num_envs, 
         env_name=args.env_name, 
         num_levels=args.num_levels, 
         start_level=args.start_level,
-        distribution_mode=args.distribution_mode
+        distribution_mode=args.distribution_mode,
+        rand_seed=args.gym_seed
     )
     env = gym.wrappers.RecordEpisodeStatistics(env)
     env = gym.wrappers.NormalizeReward(env, gamma=args.gamma)
@@ -133,14 +139,18 @@ def main(args):
     intersection = [value for value in hard_levels if value in unplayable_levels]
     assert len(intersection) == 0
     
-    init_research_method = {i : j for i, j in all_level_trajectories.items() if i in hard_levels}
+    copy_all_level_trajectories = copy.deepcopy(all_level_trajectories)
+    
+    init_research_method = {i : j for i, j in copy_all_level_trajectories.items() if i in hard_levels}
     init_all_level_dict = init_all_levels_dict(args.num_levels, args.env_name)
+    
+    copy_init_all_level_dict = copy.deepcopy(init_all_level_dict)
     
     # masked: don't let it see any hard levels
     if bool(args.masked):
-        init_easy_level_dict = {i : j for i, j in init_all_level_dict.items() if i not in hard_levels and i not in unplayable_levels}
+        init_easy_level_dict = {i : j for i, j in copy_init_all_level_dict.items() if i not in hard_levels and i not in unplayable_levels}
     else:
-        init_easy_level_dict = {i : j for i, j in init_all_level_dict.items() if i not in hard_levels}
+        init_easy_level_dict = {i : j for i, j in copy_init_all_level_dict.items() if i not in hard_levels}
     
     # something seems off, need to debug
     print(f'Masked? {str(args.masked)}, Initial easy level set: {len(init_easy_level_dict)}, Initial hard level set: {len(init_research_method)}')
@@ -180,12 +190,12 @@ def main(args):
     )
     
     # add methods manually cuz faster
-    agent.init_research_method = init_research_method.copy()
-    agent.init_easy_level_dict = init_easy_level_dict.copy()
-    agent.init_all_level_trajectories = all_level_trajectories.copy()
-    agent.init_all_level_dict = init_all_level_dict.copy()
-    agent.level_average_returns = level_average_returns.copy()
-    agent.unplayable_levels = unplayable_levels.copy()
+    agent.init_research_method = copy.deepcopy(init_research_method)
+    agent.init_easy_level_dict = copy.deepcopy(init_easy_level_dict)
+    agent.init_all_level_trajectories = copy.deepcopy(all_level_trajectories)
+    agent.init_all_level_dict = copy.deepcopy(init_all_level_dict)
+    agent.level_average_returns = copy.deepcopy(level_average_returns)
+    agent.unplayable_levels = unplayable_levels
     agent.num_initial_hard_levels = len(hard_levels)
     
     # testing env / evaluation methods

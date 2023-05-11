@@ -36,6 +36,10 @@ class ResearchMethod10(BaseAlgorithm):
     
     tried but removed:
         overlapping boundaries
+        
+    5/3/2023
+    - adding minimum/maxmimum p? didnt help, gonna remove
+    - when the agent gets stuck at some level, why not just reset it back to the original boundary and let it try again? no point in letting it get stuck on it forever.
     """
     def __init__(
         self,
@@ -102,6 +106,7 @@ class ResearchMethod10(BaseAlgorithm):
         # custom logging (licheng)
         self.stuck_boundary = {}
         self.hard_level_play_length = {}
+        self.level_counter = {i : 0 for i in range(500)}
 
         if _init_setup_model:
             self._setup_model()
@@ -233,8 +238,9 @@ class ResearchMethod10(BaseAlgorithm):
                         
                     updated_average_return = self.level_average_returns[level] * 0.9 + item['episode']['r'] * 0.1
                     self.level_average_returns[level] = updated_average_return
+                    self.level_counter[level] += 1
                     
-                    print(f'Finished playing level: {level}, Average Return: {updated_average_return}')
+                    # print(f'Finished playing level: {level}, Average Return: {updated_average_return}')
                     
                     if level in self.init_research_method:
                         # extra things to log: 
@@ -254,11 +260,32 @@ class ResearchMethod10(BaseAlgorithm):
                             if updated_average_return >= 9.0:
                                 self.init_research_method[level]['trajectory boundaries'].pop()
                                 self.level_average_returns[level] = 0.0
+                                self.level_counter[level] = 0 
                         else:
                             if updated_average_return >= 9.0: # enforcing a higher threshold to move the hard level to an easy level
-                                self.init_easy_level_dict[level] = self.init_all_level_dict[level] 
+                                self.init_easy_level_dict[level] = copy.deepcopy(self.init_all_level_dict[level])
                                 self.init_research_method.pop(level)
                                 self.p -= self.initial_p / self.num_initial_hard_levels
+                                self.level_counter[level] = 0
+                                
+                                # self.p = max(self.p, self.minimum_p)
+                                
+                        # print({i : j for i, j in self.level_counter.items() if i in self.init_research_method.keys()})
+                        # if the level is some horrible return and it is not an unplayable level, reset the boundary and let it try again?
+                        
+                        # found error, for some reason when resetting to init all trajectories dict its too short.
+                        if updated_average_return <= 1e-3:
+                            if updated_average_return != 0 or (updated_average_return == 0 and self.level_counter[level] >= 100):
+                                self.init_research_method.pop(level)
+                                self.init_research_method[level] = copy.deepcopy(self.init_all_level_trajectories[level])
+                                
+                                print(updated_average_return, self.level_counter[level])
+                                print(f'LEVEL BOUNDARIES RESET: {len(self.init_research_method[level]["trajectory boundaries"])}')
+                                assert len(self.init_research_method[level]['trajectory boundaries']) == 5
+                                
+                                self.level_average_returns[level] = 0
+                                self.level_counter[level] = 0              
+                            
                     
                     elif level in self.init_easy_level_dict:
                         if updated_average_return <= 7.0:
@@ -266,8 +293,11 @@ class ResearchMethod10(BaseAlgorithm):
                             # (it means that it was too hard to even had trajectories for, so don't move anything, just play it as usual)
                             if level not in self.unplayable_levels:
                                 self.init_easy_level_dict.pop(level)
-                                self.init_research_method[level] = self.init_all_level_trajectories[level]
+                                self.init_research_method[level] = copy.deepcopy(self.init_all_level_trajectories[level])
                                 self.p += self.initial_p / self.num_initial_hard_levels
+                                self.level_counter[level] = 0
+                                
+                                # self.p = min(self.p, self.maximum_p)
                         
 
             # set environments
@@ -447,6 +477,12 @@ class ResearchMethod10(BaseAlgorithm):
                 elif self.init_research_method: # if there are levels in the hard levels dict, then not stable
                     self.stable = False
                     self.extra_steps = 0
+                    
+                # early stopping if the agent gets too stuck on some levels
+                hard_level_returns = np.array([j for i, j in self.level_average_returns.items() if i in self.init_research_method.keys()])
+                if all(hard_level_returns < 1e-15) and all(hard_level_returns != 0):
+                    callback.on_training_end()
+                    return self
                     
                 
             self.train()
