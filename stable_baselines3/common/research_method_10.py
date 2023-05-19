@@ -107,9 +107,18 @@ class ResearchMethod10(BaseAlgorithm):
         self.stuck_boundary = {}
         self.hard_level_play_length = {}
         self.level_counter = {i : 0 for i in range(500)}
+        
 
         if _init_setup_model:
             self._setup_model()
+    
+    def _extra_init(self):
+        # saving trajectories
+        # trajectory_dict_path, finetune_level_list
+        self.trajectory_buffer = [[] for i in range(self.n_envs)]
+        self.trajectory_bytes_buffer = [[] for i in range(self.n_envs)]
+        self.good_trajectory_buffer = {i : [] for i in self.unplayable_levels}
+        self.good_trajectory_bytes_buffer = {i : [] for i in self.unplayable_levels}
 
     def _setup_model(self) -> None:
         self._setup_lr_schedule()
@@ -190,6 +199,14 @@ class ResearchMethod10(BaseAlgorithm):
             if isinstance(self.action_space, spaces.Box):
                 clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
             
+            obs_bytes = env.venv.venv.env.env.env.env.get_state()
+            for idx, obs in enumerate(self._last_obs['rgb']):
+                self.trajectory_buffer[idx].append(obs.copy())
+            #  print(obs_bytes)
+            for idx, obsb in enumerate(obs_bytes): 
+                # obsb is a string, obs_bytes is a list with 64 strings, not 64 lists lol
+                self.trajectory_bytes_buffer[idx].append(obsb)
+            
             # custom wandb logging 
             new_obs, rewards, dones, infos = env.step(clipped_actions)
 
@@ -232,6 +249,26 @@ class ResearchMethod10(BaseAlgorithm):
             # self.init_easy_level_dict
             # self.init_all_level_trajectories
             # self.init_all_levels_dict
+            
+            # saving 'lucky trajectories encountered from the unplayable levels during algorithm training
+            for idx, item in enumerate(infos):
+                if 'episode' in item.keys():
+                    level = item['prev_level_seed']
+                    
+                    if level in self.unplayable_levels:
+                        if item['episode']['r'] == 10:
+                            if len(self.good_trajectory_buffer[level]) >= 25:
+                                replacement_index = np.argmax([len(t) for t in self.good_trajectory_buffer[level]])
+                                self.good_trajectory_buffer[level][replacement_index] = copy.deepcopy(self.trajectory_buffer[idx])
+                                self.good_trajectory_bytes_buffer[level][replacement_index] = copy.deepcopy(self.trajectory_bytes_buffer[idx])
+                            else:
+                                self.good_trajectory_buffer[level].append(copy.deepcopy(self.trajectory_buffer[idx])) # list of np arrays
+                                self.good_trajectory_bytes_buffer[level].append(copy.deepcopy(self.trajectory_bytes_buffer[idx]))
+
+                    self.trajectory_buffer[idx] = [] # reset list, end of a trajectory
+                    self.trajectory_bytes_buffer[idx] = []
+            
+            
             for item in infos:
                 if 'episode' in item.keys():
                     level = item['prev_level_seed']

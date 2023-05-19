@@ -66,7 +66,7 @@ def rollout_trajectories(model, env, device, n=100):
 def main(args):
     torch.manual_seed(0)
     
-    weights = torch.load(args.pretrained_weights_path + '.pth')
+    weights = torch.load(args.pretrained_weights_path + '.pth', map_location='cpu')
     device = torch.device('cuda:' + str(args.device))
     
     eval_level_returns = []

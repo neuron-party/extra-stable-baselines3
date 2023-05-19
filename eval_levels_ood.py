@@ -52,7 +52,7 @@ def main(args):
     # set a seed for torch so that theres less variance in the results
     torch.manual_seed(0)
     
-    weights = torch.load(args.pretrained_weights_path + '.pth')
+    weights = torch.load(args.pretrained_weights_path + '.pth', map_location='cpu')
     device = torch.device('cuda:' + str(args.device))
     
     env = initialize_env2( # don't need to specify num_levels or start_level since we're doing it manually

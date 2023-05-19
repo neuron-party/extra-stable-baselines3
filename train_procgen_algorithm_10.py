@@ -71,6 +71,7 @@ def parse_args():
     
     parser.add_argument('--torch-seed', type=int, default=0)
     parser.add_argument('--gym-seed', type=int, default=0)
+    parser.add_argument('--trajectory-buffer-save-path', type=str, default=None)
     
     args = parser.parse_args()
     return args
@@ -203,12 +204,23 @@ def main(args):
     agent.test_logging_checkpoint = 10
     agent.num_test_trajectories = 50
     
+    # for trajectory buffer
+    agent._extra_init()
+    
     agent.learn(total_timesteps=args.max_global_steps)
     
     torch.save({
         'model': agent.policy.state_dict(),
         'optimizer': agent.policy.optimizer.state_dict()
     }, args.save_path + '_final.pth')
+    
+    if args.trajectory_buffer_save_path:
+        trajectory_buffer = {
+            'array buffer': copy.deepcopy(agent.good_trajectory_buffer),
+            'bytes buffer': copy.deepcopy(agent.good_trajectory_bytes_buffer)
+        }
+        with open(args.trajectory_buffer_save_path + '.pkl', 'wb') as f:
+            pickle.dump(trajectory_buffer, f)
     
 
 if __name__ == '__main__':
